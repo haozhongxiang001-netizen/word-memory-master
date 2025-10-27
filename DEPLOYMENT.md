@@ -8,6 +8,7 @@
 1. 确认项目文件结构正确（包含index.html和其他必要资源）
 2. 创建了.gitignore文件（已完成）
 3. 更新了网站元信息（已完成）
+4. 配置Google TTS API（用于发音功能，可选但推荐）
 
 ## 部署选项
 
@@ -128,6 +129,141 @@ Vercel也提供了简单的部署选项。
    - 确认项目配置（通常不需要更改）
    - 点击「Deploy」
    - 部署完成后，Vercel会提供一个URL（如 `your-site.vercel.app`）
+
+## Google TTS API 配置指南
+
+为了提供高质量的发音功能，应用集成了Google Cloud Text-to-Speech API。以下是配置指南：
+
+### 获取Google Cloud API密钥
+
+1. **创建Google Cloud账户**
+   - 访问 [Google Cloud Console](https://console.cloud.google.com/)
+   - 使用Google账户登录或创建新账户
+   - 完成免费试用或结算信息设置
+
+2. **创建新项目**
+   - 在Cloud Console中，点击顶部的项目选择器
+   - 点击「新建项目」
+   - 输入项目名称（如「Word-Memory-Master」）
+   - 点击「创建」
+
+3. **启用Text-to-Speech API**
+   - 在左侧导航栏中，点击「API和服务」>「库」
+   - 在搜索框中输入「Text-to-Speech」
+   - 选择「Cloud Text-to-Speech API」并点击「启用」
+
+4. **创建API密钥**
+   - 在左侧导航栏中，点击「API和服务」>「凭据」
+   - 点击「创建凭据」>「API密钥」
+   - 复制生成的API密钥（请妥善保管）
+   - （可选但推荐）点击「限制密钥」设置使用限制
+
+### API密钥安全管理
+
+**重要：绝不要将API密钥硬编码在前端代码中！**
+
+推荐的安全方案：
+
+1. **使用代理服务器转发请求**
+   - 部署一个简单的后端服务作为API代理
+   - 后端服务存储API密钥并转发请求到Google API
+   - 前端只与代理服务通信
+
+   示例Node.js代理服务器：
+   ```javascript
+   const express = require('express');
+   const axios = require('axios');
+   const cors = require('cors');
+   require('dotenv').config();
+
+   const app = express();
+   app.use(express.json());
+   app.use(cors());
+
+   // 代理Google TTS API请求
+   app.post('/api/google-tts', async (req, res) => {
+     try {
+       const { text, voiceName, speakingRate, pitch } = req.body;
+       const response = await axios.post(
+         'https://texttospeech.googleapis.com/v1/text:synthesize',
+         {
+           input: { text },
+           voice: { languageCode: 'en-US', name: voiceName || 'en-US-Wavenet-C' },
+           audioConfig: {
+             audioEncoding: 'MP3',
+             speakingRate: parseFloat(speakingRate || 0.9),
+             pitch: parseFloat(pitch || 0)
+           }
+         },
+         {
+           headers: {
+             'Authorization': `Bearer ${process.env.GOOGLE_API_KEY}`
+           }
+         }
+       );
+       res.json(response.data);
+     } catch (error) {
+       console.error('TTS API Error:', error.message);
+       res.status(500).json({ error: error.message });
+     }
+   });
+
+   const PORT = process.env.PORT || 3001;
+   app.listen(PORT, () => console.log(`Proxy server running on port ${PORT}`));
+   ```
+
+2. **环境变量配置**
+   - 在代理服务器上，使用环境变量存储API密钥
+   - 创建`.env`文件：
+     ```
+     GOOGLE_API_KEY=your_actual_api_key_here
+     ```
+   - 确保`.env`文件已添加到`.gitignore`中
+
+### 本地开发配置
+
+1. **修改google_tts_api.js中的API端点**
+   - 将`GOOGLE_TTS_API_ENDPOINT`设置为代理服务器地址
+   - 例如：`const GOOGLE_TTS_API_ENDPOINT = 'http://localhost:3001/api/google-tts';`
+
+2. **临时开发方案**（仅用于测试）
+   - 对于本地开发，可以暂时将API密钥设置为常量
+   - 在`google_tts_api.js`中：
+     ```javascript
+     const API_KEY = 'your_api_key'; // 仅用于本地开发！
+     const GOOGLE_TTS_API_ENDPOINT = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${API_KEY}`;
+     ```
+   - **警告：不要提交包含API密钥的代码！**
+
+### 部署环境配置
+
+1. **在托管平台设置环境变量**
+   - **Netlify**: 在「Site settings」>「Build & deploy」>「Environment」中添加
+   - **Vercel**: 在「Project Settings」>「Environment Variables」中添加
+   - **Heroku**: 在「Settings」>「Config Vars」中添加
+
+2. **代理服务器部署选项**
+   - **Vercel Serverless Functions**: 最简单的选项
+   - **Heroku**: 适合小型应用
+   - **Google Cloud Functions**: 与Google API集成最佳
+
+### API配额和计费
+
+1. **免费额度**
+   - Google Cloud Text-to-Speech提供每月100万个字符的免费额度
+   - 详细信息请查看[Google Cloud Pricing](https://cloud.google.com/text-to-speech/pricing)
+
+2. **监控使用情况**
+   - 在Google Cloud Console中，定期检查API使用情况
+   - 设置预算提醒以避免意外费用
+
+### 降级处理
+
+如果Google TTS API不可用，应用将自动回退到浏览器的Web Speech API。确保：
+
+1. 测试Web Speech API的兼容性
+2. 向用户显示适当的错误提示
+3. 提供手动切换发音引擎的选项（在应用设置中）
 
 ## 部署后验证
 

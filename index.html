@@ -15,8 +15,84 @@
     <!-- AOS 动画库 -->
     <link href="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js"></script>
-    
+    <!-- Google TTS API 集成 -->
+    <script src="google_tts_api.js" type="module"></script>
     <script>
+        // 初始化发音设置和事件监听
+        function initPronunciationSettings() {
+            // 从localStorage加载设置
+            const loadSettings = () => {
+                const voiceSettings = JSON.parse(localStorage.getItem('voiceSettings')) || {
+                    engine: 'google',
+                    speakingRate: 0.9,
+                    pitch: 0,
+                    voiceName: 'en-US-Wavenet-C'
+                };
+                
+                // 更新UI
+                document.querySelector(`input[name="ttsEngine"][value="${voiceSettings.engine}"]`).checked = true;
+                document.getElementById('speakingRate').value = voiceSettings.speakingRate;
+                document.getElementById('speakingRateValue').textContent = voiceSettings.speakingRate;
+                document.getElementById('pitch').value = voiceSettings.pitch;
+                document.getElementById('pitchValue').textContent = voiceSettings.pitch;
+                document.getElementById('voiceName').value = voiceSettings.voiceName;
+                
+                // 应用设置到userSettings
+                if (window.userSettings) {
+                    window.userSettings.voiceSettings = voiceSettings;
+                }
+            };
+            
+            // 保存设置到localStorage
+            const saveSettings = () => {
+                const voiceSettings = {
+                    engine: document.querySelector('input[name="ttsEngine"]:checked').value,
+                    speakingRate: parseFloat(document.getElementById('speakingRate').value),
+                    pitch: parseInt(document.getElementById('pitch').value),
+                    voiceName: document.getElementById('voiceName').value
+                };
+                
+                localStorage.setItem('voiceSettings', JSON.stringify(voiceSettings));
+                
+                // 更新userSettings
+                if (window.userSettings) {
+                    window.userSettings.voiceSettings = voiceSettings;
+                }
+                
+                // 更新TTS配置
+                if (window.updateTTSConfig) {
+                    window.updateTTSConfig(voiceSettings);
+                }
+                
+                // 显示保存成功提示
+                showToast('发音设置已保存');
+            };
+            
+            // 添加事件监听器
+            document.querySelectorAll('input[name="ttsEngine"]').forEach(radio => {
+                radio.addEventListener('change', saveSettings);
+            });
+            
+            const speakingRateSlider = document.getElementById('speakingRate');
+            speakingRateSlider.addEventListener('input', function() {
+                document.getElementById('speakingRateValue').textContent = this.value;
+            });
+            speakingRateSlider.addEventListener('change', saveSettings);
+            
+            const pitchSlider = document.getElementById('pitch');
+            pitchSlider.addEventListener('input', function() {
+                document.getElementById('pitchValue').textContent = this.value;
+            });
+            pitchSlider.addEventListener('change', saveSettings);
+            
+            document.getElementById('voiceName').addEventListener('change', saveSettings);
+            
+            // 初始化加载设置
+            loadSettings();
+        }
+        
+        // 当DOM加载完成后初始化发音设置
+        document.addEventListener('DOMContentLoaded', initPronunciationSettings);
         tailwind.config = {
             theme: {
                 extend: {
@@ -99,6 +175,36 @@
     </style>
 </head>
 <body class="bg-gray-50 font-sans min-h-screen flex flex-col">
+        <!-- 密码验证弹窗 -->
+        <div id="passwordModal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+            <div class="bg-white dark:bg-gray-800 rounded-xl p-8 max-w-md w-full mx-4 shadow-2xl">
+                <div class="text-center mb-6">
+                    <h2 class="text-2xl font-bold text-primary mb-2">单词记忆大师</h2>
+                    <p class="text-gray-600 dark:text-gray-300">请输入密码以访问</p>
+                </div>
+                <div class="space-y-4">
+                    <div>
+                        <label for="passwordInput" class="block text-sm font-medium mb-1">密码</label>
+                        <input 
+                            type="password" 
+                            id="passwordInput" 
+                            class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary dark:bg-gray-700" 
+                            placeholder="请输入密码"
+                            autocomplete="current-password"
+                        >
+                    </div>
+                    <div id="passwordError" class="hidden text-red-500 text-sm mt-1">
+                        密码错误，请重试
+                    </div>
+                    <button 
+                        id="loginButton" 
+                        class="w-full bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                    >
+                        登录
+                    </button>
+                </div>
+            </div>
+        </div>
     <!-- 顶部导航栏 -->
     <nav class="bg-white shadow shadow-md sticky top-0 z-50">
         <div class="container mx-auto px-4 py-3 flex justify-between items-center">
@@ -134,7 +240,8 @@
                     <div class="flip-card-inner w-full h-full relative">
                         <!-- 卡片正面 (单词) -->
                         <div class="flip-card-front absolute w-full h-full flex flex-col items-center justify-center bg-gradient-primary text-white rounded-xl p-4">
-                            <h3 id="cardWord" class="text-3xl md:text-4xl font-bold mb-4 text-center">点击开始</h3>
+                            <h3 id="cardWord" class="text-3xl md:text-4xl font-bold mb-2 text-center">点击开始</h3>
+                            <p id="cardPhonetic" class="text-white/90 text-lg mb-4 text-center italic">音标</p>
                             <button id="playAudioBtn" class="bg-white/20 hover:bg-white/30 text-white p-3 rounded-full transition-colors">
                                 <i class="fa fa-volume-up text-xl"></i>
                             </button>
@@ -261,6 +368,62 @@ orange/ˈɒrɪndʒ/橙子"
                     </div>
                 </div>
                 
+                <!-- 发音设置 -->
+                <div class="mb-6">
+                    <h3 class="text-lg font-semibold mb-4">发音设置</h3>
+                    
+                    <div class="mb-4">
+                        <label class="block text-gray-700 font-medium mb-2">发音引擎</label>
+                        <div class="flex space-x-4">
+                            <label class="inline-flex items-center cursor-pointer">
+                                <input type="radio" name="ttsEngine" value="google" class="form-radio text-primary h-4 w-4" checked>
+                                <span class="ml-2 text-gray-700">Google TTS (推荐)</span>
+                            </label>
+                            <label class="inline-flex items-center cursor-pointer">
+                                <input type="radio" name="ttsEngine" value="webSpeech" class="form-radio text-primary h-4 w-4">
+                                <span class="ml-2 text-gray-700">浏览器语音</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <label for="speakingRate" class="block text-gray-700 font-medium">语速</label>
+                            <span id="speakingRateValue" class="text-sm text-gray-500">0.9</span>
+                        </div>
+                        <input type="range" id="speakingRate" min="0.5" max="2.0" step="0.1" value="0.9"
+                               class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary">
+                    </div>
+                    
+                    <div class="mb-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <label for="pitch" class="block text-gray-700 font-medium">音调</label>
+                            <span id="pitchValue" class="text-sm text-gray-500">0</span>
+                        </div>
+                        <input type="range" id="pitch" min="-20" max="20" step="1" value="0"
+                               class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary">
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label for="voiceName" class="block text-gray-700 font-medium mb-2">语音选择 (Google TTS)</label>
+                        <select id="voiceName" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent">
+                            <option value="en-US-Wavenet-C">en-US-Wavenet-C (默认)</option>
+                            <option value="en-US-Wavenet-A">en-US-Wavenet-A (男性)</option>
+                            <option value="en-US-Wavenet-B">en-US-Wavenet-B (男性)</option>
+                            <option value="en-US-Wavenet-D">en-US-Wavenet-D (男性)</option>
+                            <option value="en-US-Wavenet-E">en-US-Wavenet-E (女性)</option>
+                            <option value="en-US-Wavenet-F">en-US-Wavenet-F (女性)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="p-3 bg-blue-50 rounded-lg">
+                        <p class="text-sm text-blue-700">
+                            <i class="fa fa-info-circle mr-1"></i>
+                            注意：Google TTS 需要有效的API密钥才能使用。请在配置文件中设置您的API密钥。
+                        </p>
+                    </div>
+                </div>
+                
                 <!-- 数据统计 -->
                 <div class="mb-6">
                     <h3 class="text-lg font-semibold mb-4">数据统计</h3>
@@ -304,12 +467,15 @@ orange/ˈɒrɪndʒ/橙子"
                 
                 <!-- 数据管理 -->
                 <div class="pt-4 border-t border-gray-200">
-                    <div class="flex space-x-2">
-                        <button id="exportWordsBtn" class="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300 transition-colors">
-                            <i class="fa fa-download mr-1"></i> 导出数据
+                    <div class="grid grid-cols-3 gap-2">
+                        <button id="exportWordsBtn" class="bg-gray-200 text-gray-700 py-2 px-3 rounded-lg hover:bg-gray-300 transition-colors text-sm">
+                            <i class="fa fa-download mr-1"></i> 导出
                         </button>
-                        <button id="importWordsBtn" class="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300 transition-colors">
-                            <i class="fa fa-upload mr-1"></i> 导入数据
+                        <button id="importWordsBtn" class="bg-gray-200 text-gray-700 py-2 px-3 rounded-lg hover:bg-gray-300 transition-colors text-sm">
+                            <i class="fa fa-upload mr-1"></i> 导入
+                        </button>
+                        <button id="syncDataBtn" class="bg-purple-100 text-purple-700 py-2 px-3 rounded-lg hover:bg-purple-200 transition-colors text-sm">
+                            <i class="fa fa-sync mr-1"></i> 同步
                         </button>
                     </div>
                     
@@ -487,7 +653,8 @@ orange/ˈɒrɪndʒ/橙子"
                 todayLearned: 0,
                 lastReviewed: null,
                 history: {} // 学习历史记录，按日期存储
-            }
+            },
+            lastModified: null
         };
 
         // 当前学习状态
@@ -508,11 +675,56 @@ orange/ˈɒrɪndʒ/橙子"
         let learningStatsChart = null;
         let memoryStateChart = null;
 
-        // 初始化应用
-        function initApp() {
+        // 密码验证功能
+        function setupPasswordProtection() {
+            const correctPassword = '1010';
+            const passwordModal = document.getElementById('passwordModal');
+            const passwordInput = document.getElementById('passwordInput');
+            const loginButton = document.getElementById('loginButton');
+            const passwordError = document.getElementById('passwordError');
+            
+            // 检查是否已经通过验证（会话存储）
+            if (sessionStorage.getItem('authenticated') === 'true') {
+                passwordModal.classList.add('hidden');
+                return true;
+            }
+            
+            // 登录按钮点击事件
+            loginButton.addEventListener('click', () => {
+                const password = passwordInput.value.trim();
+                if (password === correctPassword) {
+                    // 验证通过，设置会话存储
+                    sessionStorage.setItem('authenticated', 'true');
+                    passwordModal.classList.add('hidden');
+                    
+                    // 开始应用初始化
+                    initializeAppAfterAuth();
+                } else {
+                    // 密码错误，显示错误信息
+                    passwordError.classList.remove('hidden');
+                    passwordInput.value = '';
+                    passwordInput.focus();
+                }
+            });
+            
+            // 回车键登录
+            passwordInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    loginButton.click();
+                }
+            });
+            
+            return false; // 尚未验证
+        }
+        
+        // 验证通过后的应用初始化
+        function initializeAppAfterAuth() {
             try {
                 // 从本地存储加载数据
                 loadData();
+                
+                // 尝试从同步数据恢复
+                tryRestoreFromSync();
                 
                 // 更新UI
                 updateStats();
@@ -529,6 +741,15 @@ orange/ˈɒrɪndʒ/橙子"
             } catch (error) {
                 console.error('应用初始化失败:', error);
                 showToast('应用初始化失败，请刷新页面重试');
+            }
+        }
+        
+        // 初始化应用
+        function initApp() {
+            // 设置密码保护
+            const alreadyAuthenticated = setupPasswordProtection();
+            if (alreadyAuthenticated) {
+                initializeAppAfterAuth();
             }
         }
 
@@ -593,6 +814,12 @@ orange/ˈɒrɪndʒ/橙子"
                 if (savedStats) {
                     appData.learningStats = JSON.parse(savedStats);
                 }
+                
+                // 加载最后修改时间
+                const savedLastModified = localStorage.getItem('wordMemoryLastModified');
+                if (savedLastModified) {
+                    appData.lastModified = savedLastModified;
+                }
             } catch (error) {
                 console.error('加载数据失败:', error);
                 showToast('加载数据失败，将使用默认数据');
@@ -618,6 +845,10 @@ orange/ˈɒrɪndʒ/橙子"
                 updateStats();
                 updateWordList();
                 renderCharts();
+                
+                // 保存最后修改时间，用于同步
+                appData.lastModified = new Date().toISOString();
+                localStorage.setItem('wordMemoryLastModified', appData.lastModified);
             } catch (error) {
                 console.error('保存单词数据失败:', error);
                 showToast('保存数据失败，请检查浏览器存储权限');
@@ -693,15 +924,15 @@ orange/ˈɒrɪndʒ/橙子"
                 // 自动发音
                 const pronunciationToggle = document.getElementById('pronunciationToggle');
                 if (pronunciationToggle) {
-                    pronunciationToggle.checked = appData.settings.autoPronunciation;
-                    if (appData.settings.autoPronunciation) {
-                        const block = pronunciationToggle.nextElementSibling;
-                        const dot = pronunciationToggle.nextElementSibling.nextElementSibling;
+                    // 修复：明确检查布尔值
+                    pronunciationToggle.checked = appData.settings.autoPronunciation === true;
+                    const block = pronunciationToggle.nextElementSibling;
+                    const dot = pronunciationToggle.nextElementSibling.nextElementSibling;
+                    
+                    if (appData.settings.autoPronunciation === true) {
                         if (block) block.classList.add('bg-primary');
                         if (dot) dot.classList.add('translate-x-6');
                     } else {
-                        const block = pronunciationToggle.nextElementSibling;
-                        const dot = pronunciationToggle.nextElementSibling.nextElementSibling;
                         if (block) block.classList.remove('bg-primary');
                         if (dot) dot.classList.remove('translate-x-6');
                     }
@@ -804,6 +1035,8 @@ orange/ˈɒrɪndʒ/橙子"
                     const fileInput = document.getElementById('fileInput');
                     if (fileInput) fileInput.click();
                 });
+                const syncDataBtn = document.getElementById('syncDataBtn');
+                if (syncDataBtn) syncDataBtn.addEventListener('click', syncData);
                 if (clearDataBtn) clearDataBtn.addEventListener('click', clearData);
                 
                 // 编辑单词表单
@@ -912,7 +1145,10 @@ orange/ˈɒrɪndʒ/橙子"
                     }
                 });
                 
-                // 获取今天需要学习的新单词（从未学习过的）
+                // 获取今天需要学习的新单词（从未学习过的，考虑每日目标）
+                const todayLearned = appData.learningStats.todayLearned || 0;
+                const remainingGoal = Math.max(0, appData.settings.dailyGoal - todayLearned);
+                
                 const wordsToLearnToday = appData.words.filter(word => {
                     try {
                         return !word.lastReviewed; // 从未复习过的单词
@@ -920,7 +1156,7 @@ orange/ˈɒrɪndʒ/橙子"
                         console.error('检查单词状态失败:', error);
                         return false;
                     }
-                });
+                }).slice(0, remainingGoal); // 只取今日需要学习的数量
                 
                 // 合并需要复习和需要学习的单词
                 learningState.wordsToLearn = [...wordsToReview, ...wordsToLearnToday];
@@ -932,8 +1168,17 @@ orange/ˈɒrɪndʒ/橙子"
                     return;
                 }
                 
-                // 随机排序
-                learningState.wordsToLearn.sort(() => Math.random() - 0.5);
+                // 稳定排序：复习单词在前，新单词在后，相同类型内按单词字母顺序排序
+                learningState.wordsToLearn.sort((a, b) => {
+                    // 首先按照是否需要复习排序（复习单词在前）
+                    const aIsReview = a.lastReviewed !== null;
+                    const bIsReview = b.lastReviewed !== null;
+                    if (aIsReview && !bIsReview) return -1;
+                    if (!aIsReview && bIsReview) return 1;
+                    
+                    // 对于相同类型的单词，按字母顺序排序
+                    return a.word.localeCompare(b.word);
+                });
                 
                 // 设置当前索引
                 learningState.currentIndex = 0;
@@ -941,15 +1186,17 @@ orange/ˈɒrɪndʒ/橙子"
                 // 更新UI
                 updateWordCard();
                 
-                // 更新单词计数
+                // 更新单词计数，显示今日目标进度
                 const currentWordIndex = document.getElementById('currentWordIndex');
                 const totalWordsCount = document.getElementById('totalWordsCount');
                 
-                if (currentWordIndex) currentWordIndex.textContent = learningState.currentIndex + 1;
-                if (totalWordsCount) totalWordsCount.textContent = learningState.wordsToLearn.length;
+                // 显示今日学习进度（已学习数量/每日目标）
+                // 复用之前声明的todayLearned变量
+                if (currentWordIndex) currentWordIndex.textContent = todayLearned + 1; // 下一个单词的序号
+                if (totalWordsCount) totalWordsCount.textContent = appData.settings.dailyGoal;
                 
-                // 如果设置了自动发音，播放单词发音
-                if (appData.settings.autoPronunciation) {
+                // 确保只在设置了自动发音且不为false时才播放
+                if (appData.settings.autoPronunciation && appData.settings.autoPronunciation !== false) {
                     setTimeout(playAudio, 500);
                 }
             } catch (error) {
@@ -979,12 +1226,22 @@ orange/ˈɒrɪndʒ/橙子"
                 const cardExampleBack = document.getElementById('cardExampleBack');
                 const wordCard = document.getElementById('wordCard');
                 
-                if (cardWord && cardWordBack && cardPhoneticBack && cardTranslationBack && cardExampleBack && wordCard) {
+                const cardPhonetic = document.getElementById('cardPhonetic');
+                
+                if (cardWord && cardWordBack && cardPhonetic && cardPhoneticBack && cardTranslationBack && cardExampleBack && wordCard) {
                     cardWord.textContent = currentWord.word;
                     cardWordBack.textContent = currentWord.word;
+                    cardPhonetic.textContent = currentWord.phonetic || '';
                     cardPhoneticBack.textContent = currentWord.phonetic || '';
                     cardTranslationBack.textContent = currentWord.translation;
                     cardExampleBack.textContent = currentWord.example || '';
+                    
+                    // 根据是否有音标调整布局
+                    if (!currentWord.phonetic || currentWord.phonetic.trim() === '') {
+                        cardPhonetic.classList.add('hidden');
+                    } else {
+                        cardPhonetic.classList.remove('hidden');
+                    }
                     
                     // 重置卡片状态
                     wordCard.classList.remove('flipped');
@@ -995,14 +1252,19 @@ orange/ˈɒrɪndʒ/橙子"
                     return;
                 }
                 
-                // 更新单词计数
-                const currentWordIndex = document.getElementById('currentWordIndex');
-                if (currentWordIndex) currentWordIndex.textContent = learningState.currentIndex + 1;
-                
-                // 如果设置了自动发音，播放单词发音
-                if (appData.settings.autoPronunciation) {
-                    setTimeout(playAudio, 500);
-                }
+                // 更新单词计数，显示今日目标进度
+                    const currentWordIndex = document.getElementById('currentWordIndex');
+                    const totalWordsCount = document.getElementById('totalWordsCount');
+                    
+                    // 显示今日学习进度（已学习数量/每日目标）
+                    const todayLearned = appData.learningStats.todayLearned || 0;
+                    if (currentWordIndex) currentWordIndex.textContent = todayLearned + 1; // 下一个单词的序号
+                    if (totalWordsCount) totalWordsCount.textContent = appData.settings.dailyGoal;
+                    
+                    // 确保只在设置了自动发音且不为false时才播放
+                    if (appData.settings.autoPronunciation && appData.settings.autoPronunciation !== false) {
+                        setTimeout(playAudio, 500);
+                    }
             } catch (error) {
                 console.error('更新单词卡片失败:', error);
                 showToast('更新卡片失败，请重试');
@@ -1091,7 +1353,32 @@ orange/ˈɒrɪndʒ/橙子"
         // 在页面加载完成后初始化音频兼容性
         document.addEventListener('DOMContentLoaded', initAudioCompatibility);
         
-        // 播放单词发音
+        // 用户设置 - 发音引擎选项
+        const userSettings = {
+            // 从localStorage加载用户设置
+            getTtsEngine() {
+                return localStorage.getItem('ttsEngine') || 'google'; // 默认为google
+            },
+            
+            setTtsEngine(engine) {
+                localStorage.setItem('ttsEngine', engine);
+            },
+            
+            getVoiceSettings() {
+                const settings = localStorage.getItem('voiceSettings');
+                return settings ? JSON.parse(settings) : {
+                    speakingRate: 0.9,
+                    pitch: 0,
+                    voiceName: 'en-US-Wavenet-C'
+                };
+            },
+            
+            setVoiceSettings(settings) {
+                localStorage.setItem('voiceSettings', JSON.stringify(settings));
+            }
+        };
+        
+        // 播放单词发音 - 集成Google TTS API
         function playAudio(e) {
             try {
                 // 如果点击的是播放按钮，阻止事件冒泡
@@ -1104,38 +1391,75 @@ orange/ˈɒrɪndʒ/橙子"
                 }
                 
                 const currentWord = learningState.wordsToLearn[learningState.currentIndex];
+                const selectedEngine = userSettings.getTtsEngine();
+                const voiceSettings = userSettings.getVoiceSettings();
                 
-                // 使用Web Speech API播放发音
+                // 显示播放状态
+                const playBtn = document.getElementById('playAudioBtn');
+                if (playBtn) {
+                    playBtn.classList.add('playing');
+                }
+                
+                // 根据用户选择的引擎播放音频
+                if (selectedEngine === 'google' && typeof window.playWordAudio === 'function') {
+                    // 使用Google TTS API
+                    console.log('使用Google TTS API播放音频');
+                    window.playWordAudio(currentWord.word, {
+                        voice: {
+                            name: voiceSettings.voiceName
+                        },
+                        audioConfig: {
+                            speakingRate: voiceSettings.speakingRate,
+                            pitch: voiceSettings.pitch
+                        }
+                    }).catch(error => {
+                        console.warn('Google TTS API失败，回退到Web Speech API:', error);
+                        playWithWebSpeech(currentWord.word, voiceSettings);
+                    });
+                } else {
+                    // 使用Web Speech API
+                    playWithWebSpeech(currentWord.word, voiceSettings);
+                }
+            } catch (error) {
+                console.error('播放发音失败:', error);
+                showToast('播放发音失败，请检查浏览器兼容性');
+                const playBtn = document.getElementById('playAudioBtn');
+                if (playBtn) {
+                    playBtn.classList.remove('playing');
+                }
+            }
+        }
+        
+        // 使用Web Speech API播放发音
+        function playWithWebSpeech(text, voiceSettings) {
+            try {
+                console.log('使用Web Speech API播放音频');
                 if ('speechSynthesis' in window) {
-                    // 重置语音合成器状态（处理移动设备上可能的卡住情况）
+                    // 重置语音合成器状态
                     if (speechSynthesis.speaking) {
                         speechSynthesis.cancel();
                     }
                     
                     // 创建并配置语音实例
-                    const utterance = new SpeechSynthesisUtterance(currentWord.word);
+                    const utterance = new SpeechSynthesisUtterance(text);
                     utterance.lang = 'en-US';
                     utterance.volume = 1;
-                    utterance.rate = 0.9; // 稍微降低语速提高清晰度
-                    utterance.pitch = 1;
+                    utterance.rate = voiceSettings.speakingRate;
+                    utterance.pitch = voiceSettings.pitch;
                     
                     // 添加错误处理事件
                     utterance.onerror = function(event) {
                         console.error('语音合成错误:', event.error);
+                        const playBtn = document.getElementById('playAudioBtn');
+                        if (playBtn) {
+                            playBtn.classList.remove('playing');
+                        }
+                        
                         // 根据错误类型显示不同提示
                         if (event.error === 'not-allowed') {
                             showToast('请先点击页面任意位置，然后再尝试播放音频');
                         } else {
                             showToast('播放发音失败，请稍后重试');
-                        }
-                    };
-                    
-                    // 添加开始事件（用于视觉反馈）
-                    utterance.onstart = function() {
-                        // 这里可以添加音频播放的视觉反馈
-                        const playBtn = document.getElementById('playAudioBtn');
-                        if (playBtn) {
-                            playBtn.classList.add('playing');
                         }
                     };
                     
@@ -1148,18 +1472,21 @@ orange/ˈɒrɪndʒ/橙子"
                     };
                     
                     // 尝试播放语音
-                    try {
-                        speechSynthesis.speak(utterance);
-                    } catch (speakError) {
-                        console.error('播放失败:', speakError);
-                        showToast('音频播放失败，请确保您的设备已授予音频权限');
-                    }
+                    speechSynthesis.speak(utterance);
                 } else {
+                    const playBtn = document.getElementById('playAudioBtn');
+                    if (playBtn) {
+                        playBtn.classList.remove('playing');
+                    }
                     showToast('浏览器不支持语音合成，请使用Chrome或Firefox');
                 }
             } catch (error) {
-                console.error('播放发音失败:', error);
-                showToast('播放发音失败，请检查浏览器兼容性');
+                console.error('Web Speech API播放失败:', error);
+                const playBtn = document.getElementById('playAudioBtn');
+                if (playBtn) {
+                    playBtn.classList.remove('playing');
+                }
+                showToast('所有发音引擎均失败，请检查网络连接和浏览器设置');
             }
         }
 
@@ -1399,7 +1726,12 @@ orange/ˈɒrɪndʒ/橙子"
                         }
                     });
                 } else if (libraryState.filter === 'today-learn') {
-                    filteredWords = filteredWords.filter(word => {
+                    // 计算今日剩余学习目标
+                    const todayLearned = appData.learningStats.todayLearned || 0;
+                    const remainingGoal = Math.max(0, appData.settings.dailyGoal - todayLearned);
+                    
+                    // 首先筛选出所有未复习过的单词
+                    const allNewWords = filteredWords.filter(word => {
                         try {
                             return !word.lastReviewed; // 从未复习过的单词
                         } catch (error) {
@@ -1407,6 +1739,9 @@ orange/ˈɒrɪndʒ/橙子"
                             return false;
                         }
                     });
+                    
+                    // 然后只取今日需要学习的数量（根据每日目标）
+                    filteredWords = allNewWords.slice(0, remainingGoal);
                 }
                 
                 if (filteredWords.length === 0) {
@@ -1720,9 +2055,6 @@ orange/ˈɒrɪndʒ/橙子"
                 // 今日学习数量
                 const todayLearned = appData.learningStats.todayLearned || 0;
                 
-                // 待今日学习（从未学习过的）
-                const todayLearn = appData.words.filter(word => !word.lastReviewed).length;
-                
                 // 待今日复习
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
@@ -1736,6 +2068,12 @@ orange/ˈɒrɪndʒ/橙子"
                         return false;
                     }
                 }).length;
+                
+                // 待今日学习的新单词数量（考虑每日学习目标）
+                const newWordsCount = appData.words.filter(word => !word.lastReviewed).length;
+                // 今天还需要学习的单词数 = 每日目标 - 已学习数，但不超过未学习总数
+                const remainingGoal = Math.max(0, appData.settings.dailyGoal - todayLearned);
+                const todayLearn = Math.min(remainingGoal, newWordsCount);
                 
                 // 更新统计UI
                 const totalWordsStat = document.getElementById('totalWordsStat');
@@ -1913,6 +2251,140 @@ orange/ˈɒrɪndʒ/橙子"
                 showToast('导出单词失败，请重试');
             }
         }
+        
+        // 同步数据功能
+        function syncData() {
+            try {
+                // 检查是否有用户ID，如果没有则创建一个
+                let userId = localStorage.getItem('wordMemoryUserId');
+                if (!userId) {
+                    userId = 'user_' + Math.random().toString(36).substr(2, 9);
+                    localStorage.setItem('wordMemoryUserId', userId);
+                    showToast('已创建您的数据同步标识');
+                }
+                
+                // 创建完整的应用数据对象
+                const appDataToSync = {
+                    userId: userId,
+                    words: appData.words,
+                    settings: appData.settings,
+                    learningStats: appData.learningStats,
+                    lastModified: new Date().toISOString()
+                };
+                
+                // 模拟云同步：将数据保存到localStorage的特殊键中
+                const syncKey = 'wordMemorySyncData_' + userId;
+                
+                // 创建用于同步的数据blob
+                const dataStr = JSON.stringify(appDataToSync, null, 2);
+                const blob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                
+                // 创建下载链接，用于在其他设备导入
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `word_memory_sync_${userId}_${new Date().toISOString().slice(0, 10)}.json`;
+                
+                // 显示同步提示弹窗
+                const modal = document.createElement('div');
+                modal.className = 'fixed inset-0 bg-black/70 flex items-center justify-center z-50';
+                modal.innerHTML = `
+                    <div class="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+                        <h3 class="text-xl font-bold text-center mb-4 text-primary">数据同步</h3>
+                        <p class="text-gray-600 dark:text-gray-300 mb-4">
+                            已生成同步数据文件。请保存此文件并在其他设备上导入，以实现数据同步。
+                        </p>
+                        <div class="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg mb-4 text-xs">
+                            <strong>同步ID:</strong> ${userId}
+                        </div>
+                        <div class="flex space-x-3">
+                            <button id="downloadSyncBtn" class="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg transition-colors">
+                                下载同步文件
+                            </button>
+                            <button id="closeSyncModalBtn" class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-2 px-4 rounded-lg transition-colors">
+                                取消
+                            </button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+                
+                // 绑定弹窗按钮事件
+                const downloadSyncBtn = document.getElementById('downloadSyncBtn');
+                const closeSyncModalBtn = document.getElementById('closeSyncModalBtn');
+                
+                downloadSyncBtn.addEventListener('click', function() {
+                    a.click();
+                    showToast('同步文件已下载，请在其他设备导入');
+                    document.body.removeChild(modal);
+                });
+                
+                closeSyncModalBtn.addEventListener('click', function() {
+                    document.body.removeChild(modal);
+                });
+                
+                // 保存同步状态到本地存储
+                localStorage.setItem(syncKey, dataStr);
+                localStorage.setItem('wordMemoryLastSync', new Date().toISOString());
+                
+                // 清理
+                document.body.appendChild(a);
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 100);
+            } catch (error) {
+                console.error('数据同步失败:', error);
+                showToast('数据同步失败，请重试');
+            }
+        }
+        
+        // 尝试从本地同步存储恢复数据
+        function tryRestoreFromSync() {
+            try {
+                const userId = localStorage.getItem('wordMemoryUserId');
+                if (userId) {
+                    const syncKey = 'wordMemorySyncData_' + userId;
+                    const syncData = localStorage.getItem(syncKey);
+                    
+                    if (syncData) {
+                        const parsedData = JSON.parse(syncData);
+                        
+                        // 检查是否有更新的数据
+                        const lastSync = localStorage.getItem('wordMemoryLastSync');
+                        const localLastModified = localStorage.getItem('wordMemoryLastModified');
+                        
+                        // 如果本地数据不存在，或者同步数据更新，则恢复
+                        if (!localLastModified || 
+                            (lastSync && (!localLastModified || new Date(lastSync) > new Date(localLastModified)))) {
+                            
+                            // 恢复单词数据
+                            if (parsedData.words) {
+                                appData.words = parsedData.words;
+                                saveWords();
+                            }
+                            
+                            // 恢复设置
+                            if (parsedData.settings) {
+                                appData.settings = parsedData.settings;
+                                saveSettings();
+                            }
+                            
+                            // 恢复学习统计
+                            if (parsedData.learningStats) {
+                                appData.learningStats = parsedData.learningStats;
+                                saveStats();
+                            }
+                            
+                            showToast('已从本地同步数据恢复');
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('恢复同步数据失败:', error);
+                // 静默失败，不影响应用运行
+            }
+        }
 
         // 导入单词
         function importWords(e) {
@@ -1923,7 +2395,21 @@ orange/ˈɒrɪndʒ/橙子"
                 const reader = new FileReader();
                 reader.onload = function(e) {
                     try {
-                        const importedWords = JSON.parse(e.target.result);
+                        const importedData = JSON.parse(e.target.result);
+                        
+                        // 检查是否是完整的应用数据或仅单词列表
+                        let importedWords = importedData;
+                        let importedSettings = null;
+                        let importedStats = null;
+                        let lastModified = null;
+                        
+                        if (importedData.words) {
+                            // 完整的应用数据
+                            importedWords = importedData.words;
+                            importedSettings = importedData.settings;
+                            importedStats = importedData.learningStats;
+                            lastModified = importedData.lastModified;
+                        }
                         
                         // 验证导入的数据格式
                         if (!Array.isArray(importedWords)) {
@@ -1954,9 +2440,26 @@ orange/ˈɒrɪndʒ/橙子"
                             }
                         });
                         
+                        // 导入设置和统计数据（如果存在）
+                        if (importedSettings) {
+                            appData.settings = { ...appData.settings, ...importedSettings };
+                            saveSettings();
+                        }
+                        
+                        if (importedStats) {
+                            appData.learningStats = { ...appData.learningStats, ...importedStats };
+                            saveStats();
+                        }
+                        
+                        // 更新最后修改时间
+                        if (lastModified) {
+                            appData.lastModified = lastModified;
+                            localStorage.setItem('wordMemoryLastModified', appData.lastModified);
+                        }
+                        
                         saveWords();
                         
-                        showToast(`成功导入 ${validWords.length} 个单词`);
+                        showToast(`成功导入 ${validWords.length} 个单词${importedSettings ? '和设置' : ''}${importedStats ? '和学习统计' : ''}`);
                         
                         // 重置文件输入
                         e.target.value = '';
