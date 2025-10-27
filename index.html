@@ -1021,6 +1021,76 @@ orange/ˈɒrɪndʒ/橙子"
             }
         }
 
+        // 页面初始化函数，处理移动设备音频兼容性
+        function initAudioCompatibility() {
+            // 标记音频上下文是否已激活
+            let audioContextActivated = false;
+            
+            // 预先激活音频上下文的函数
+            function activateAudioContext() {
+                if (!audioContextActivated) {
+                    console.log('激活音频上下文...');
+                    
+                    // 尝试预加载语音合成器
+                    if ('speechSynthesis' in window) {
+                        // 创建一个空的语音实例来预热语音合成器
+                        const testUtterance = new SpeechSynthesisUtterance('');
+                        testUtterance.lang = 'en-US';
+                        
+                        try {
+                            // 这个空的语音请求不会产生声音，但可以帮助激活音频上下文
+                            speechSynthesis.speak(testUtterance);
+                            // 立即取消这个空请求
+                            setTimeout(() => {
+                                speechSynthesis.cancel();
+                            }, 50);
+                            
+                            audioContextActivated = true;
+                            console.log('音频上下文激活成功');
+                        } catch (error) {
+                            console.warn('预热语音合成器失败:', error);
+                        }
+                    }
+                }
+            }
+            
+            // 在用户首次交互时激活音频上下文
+            function handleFirstUserInteraction() {
+                activateAudioContext();
+                
+                // 移除临时的交互监听器
+                document.removeEventListener('click', handleFirstUserInteraction);
+                document.removeEventListener('touchstart', handleFirstUserInteraction);
+                document.removeEventListener('keydown', handleFirstUserInteraction);
+                
+                console.log('首次用户交互已处理');
+            }
+            
+            // 添加临时的用户交互监听器
+            document.addEventListener('click', handleFirstUserInteraction);
+            document.addEventListener('touchstart', handleFirstUserInteraction);
+            document.addEventListener('keydown', handleFirstUserInteraction);
+            
+            // 添加提示，告诉用户在移动设备上的使用方法
+            function showMobileAudioHint() {
+                // 检测是否为移动设备
+                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                
+                if (isMobile) {
+                    // 延迟显示提示，避免干扰用户初始体验
+                    setTimeout(() => {
+                        showToast('在移动设备上，请先点击页面任意位置，然后再使用音频功能');
+                    }, 2000);
+                }
+            }
+            
+            // 显示移动设备音频提示
+            showMobileAudioHint();
+        }
+        
+        // 在页面加载完成后初始化音频兼容性
+        document.addEventListener('DOMContentLoaded', initAudioCompatibility);
+        
         // 播放单词发音
         function playAudio(e) {
             try {
@@ -1037,15 +1107,59 @@ orange/ˈɒrɪndʒ/橙子"
                 
                 // 使用Web Speech API播放发音
                 if ('speechSynthesis' in window) {
+                    // 重置语音合成器状态（处理移动设备上可能的卡住情况）
+                    if (speechSynthesis.speaking) {
+                        speechSynthesis.cancel();
+                    }
+                    
+                    // 创建并配置语音实例
                     const utterance = new SpeechSynthesisUtterance(currentWord.word);
                     utterance.lang = 'en-US';
-                    speechSynthesis.speak(utterance);
+                    utterance.volume = 1;
+                    utterance.rate = 0.9; // 稍微降低语速提高清晰度
+                    utterance.pitch = 1;
+                    
+                    // 添加错误处理事件
+                    utterance.onerror = function(event) {
+                        console.error('语音合成错误:', event.error);
+                        // 根据错误类型显示不同提示
+                        if (event.error === 'not-allowed') {
+                            showToast('请先点击页面任意位置，然后再尝试播放音频');
+                        } else {
+                            showToast('播放发音失败，请稍后重试');
+                        }
+                    };
+                    
+                    // 添加开始事件（用于视觉反馈）
+                    utterance.onstart = function() {
+                        // 这里可以添加音频播放的视觉反馈
+                        const playBtn = document.getElementById('playAudioBtn');
+                        if (playBtn) {
+                            playBtn.classList.add('playing');
+                        }
+                    };
+                    
+                    // 添加结束事件（重置视觉反馈）
+                    utterance.onend = function() {
+                        const playBtn = document.getElementById('playAudioBtn');
+                        if (playBtn) {
+                            playBtn.classList.remove('playing');
+                        }
+                    };
+                    
+                    // 尝试播放语音
+                    try {
+                        speechSynthesis.speak(utterance);
+                    } catch (speakError) {
+                        console.error('播放失败:', speakError);
+                        showToast('音频播放失败，请确保您的设备已授予音频权限');
+                    }
                 } else {
-                    showToast('浏览器不支持语音合成');
+                    showToast('浏览器不支持语音合成，请使用Chrome或Firefox');
                 }
             } catch (error) {
                 console.error('播放发音失败:', error);
-                showToast('播放发音失败');
+                showToast('播放发音失败，请检查浏览器兼容性');
             }
         }
 
