@@ -628,7 +628,7 @@ orange/ˈɒrɪndʒ/橙子"
     </div>
 
     <!-- 隐藏的文件输入 -->
-    <input type="file" id="fileInput" accept=".json" style="display: none;">
+    <input type="file" id="fileInput" accept=".json,.csv" style="display: none;">
 
     <script>
         // 初始化AOS动画库
@@ -1137,11 +1137,11 @@ orange/ˈɒrɪndʒ/橙子"
                 
                 const wordsToReview = appData.words.filter(word => {
                     try {
-                        const nextReview = new Date(word.nextReview);
-                        return nextReview <= today;
+                        // 只有已经学习过（lastReviewed不为null）且nextReview小于等于今天的单词才需要复习
+                        return word.lastReviewed !== null && new Date(word.nextReview) <= today;
                     } catch (error) {
                         console.error('解析日期失败:', error);
-                        return true; // 如果日期解析失败，默认需要复习
+                        return false; // 如果日期解析失败，不默认需要复习
                     }
                 });
                 
@@ -2238,8 +2238,8 @@ orange/ˈɒrɪndʒ/橙子"
             }
         }
 
-        // 导出单词
-        function exportWords() {
+        // 导出单词为JSON格式
+        function exportWordsAsJSON() {
             try {
                 const data = JSON.stringify(appData.words, null, 2);
                 const blob = new Blob([data], { type: 'application/json' });
@@ -2253,11 +2253,108 @@ orange/ˈɒrɪndʒ/橙子"
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
                 
-                showToast('单词库已导出');
+                showToast('单词库已导出为JSON格式');
             } catch (error) {
                 console.error('导出单词失败:', error);
                 showToast('导出单词失败，请重试');
             }
+        }
+        
+        // 导出单词为CSV格式（Excel友好）
+        function exportWordsAsCSV() {
+            try {
+                // CSV标题行
+                let csvContent = '单词,音标,翻译,例句,难度,最后复习时间,复习次数,下次复习时间,初次学习时间\n';
+                
+                // 添加每个单词的数据行
+                appData.words.forEach(word => {
+                    // 处理CSV中的特殊字符（逗号、引号、换行符）
+                    const escapeCSV = (value) => {
+                        if (value === null || value === undefined) return '';
+                        const str = String(value);
+                        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                            return '"' + str.replace(/"/g, '""') + '"';
+                        }
+                        return str;
+                    };
+                    
+                    // 难度映射：0=简单，1=一般，2=困难
+                    const difficultyMap = ['简单', '一般', '困难'];
+                    const difficultyText = word.difficulty !== undefined ? difficultyMap[word.difficulty] || '未知' : '未知';
+                    
+                    // 构建CSV行
+                    const row = [
+                        escapeCSV(word.word),
+                        escapeCSV(word.phonetic),
+                        escapeCSV(word.translation),
+                        escapeCSV(word.example),
+                        escapeCSV(difficultyText),
+                        escapeCSV(word.lastReviewed),
+                        escapeCSV(word.reviewCount),
+                        escapeCSV(word.nextReview),
+                        escapeCSV(word.firstLearned)
+                    ].join(',');
+                    
+                    csvContent += row + '\n';
+                });
+                
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `word_memory_excel_${new Date().toISOString().slice(0, 10)}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                showToast('单词库已导出为CSV格式（可在Excel中编辑）');
+            } catch (error) {
+                console.error('导出CSV失败:', error);
+                showToast('导出CSV失败，请重试');
+            }
+        }
+        
+        // 导出单词（提供选项）
+        function exportWords() {
+            // 创建导出选项对话框
+            const exportModal = document.createElement('div');
+            exportModal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+            exportModal.innerHTML = `
+                <div class="bg-white rounded-lg p-6 max-w-md w-full">
+                    <h3 class="text-xl font-bold mb-4">选择导出格式</h3>
+                    <p class="mb-4">请选择您需要的导出格式：</p>
+                    <div class="flex flex-col gap-3">
+                        <button id="exportJSONBtn" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition">
+                            导出为JSON（完整数据）
+                        </button>
+                        <button id="exportCSVBtn" class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">
+                            导出为CSV（Excel编辑用）
+                        </button>
+                        <button id="cancelExportBtn" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300 transition">
+                            取消
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(exportModal);
+            
+            // 添加事件监听器
+            document.getElementById('exportJSONBtn').addEventListener('click', () => {
+                exportWordsAsJSON();
+                document.body.removeChild(exportModal);
+            });
+            
+            document.getElementById('exportCSVBtn').addEventListener('click', () => {
+                exportWordsAsCSV();
+                document.body.removeChild(exportModal);
+            });
+            
+            document.getElementById('cancelExportBtn').addEventListener('click', () => {
+                document.body.removeChild(exportModal);
+            });
         }
         
         // 同步数据功能
@@ -2394,7 +2491,117 @@ orange/ˈɒrɪndʒ/橙子"
             }
         }
 
-        // 导入单词
+        // 解析CSV内容为单词数组
+        function parseCSVToWords(csvContent) {
+            const lines = csvContent.split('\n');
+            const words = [];
+            
+            // 跳过标题行
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                // 使用正则表达式解析CSV（支持包含逗号和引号的字段）
+                const matches = line.match(/(?:"([^"]*)"|([^,]+))/g);
+                if (!matches || matches.length < 5) continue; // 至少需要5个字段
+                
+                // 清理匹配结果（去除引号和多余的空格）
+                const cleanMatches = matches.map(m => {
+                    const cleaned = m.trim();
+                    return cleaned.startsWith('"') && cleaned.endsWith('"') 
+                        ? cleaned.substring(1, cleaned.length - 1).replace(/""/g, '"')
+                        : cleaned;
+                });
+                
+                // 难度反向映射
+                const difficultyReverseMap = {
+                    '简单': 0,
+                    '一般': 1,
+                    '困难': 2
+                };
+                
+                const word = {
+                    word: cleanMatches[0] || '',
+                    phonetic: cleanMatches[1] || '',
+                    translation: cleanMatches[2] || '',
+                    example: cleanMatches[3] || '',
+                    difficulty: cleanMatches[4] ? difficultyReverseMap[cleanMatches[4]] || 1 : 1,
+                    lastReviewed: cleanMatches[5] && cleanMatches[5].trim() ? cleanMatches[5] : null,
+                    reviewCount: cleanMatches[6] && cleanMatches[6].trim() ? parseInt(cleanMatches[6]) : 0,
+                    nextReview: cleanMatches[7] && cleanMatches[7].trim() ? cleanMatches[7] : new Date().toISOString().split('T')[0],
+                    firstLearned: cleanMatches[8] && cleanMatches[8].trim() ? cleanMatches[8] : null
+                };
+                
+                if (word.word && word.translation) {
+                    words.push(word);
+                }
+            }
+            
+            return words;
+        }
+        
+        // 处理导入的单词数据
+        function processImportedWords(words) {
+            // 检查每个单词是否有必要的字段
+            const validWords = words.filter(word => 
+                word.word && word.translation
+            );
+            
+            let newWordsCount = 0;
+            let updatedWordsCount = 0;
+            
+            // 添加导入的单词
+            validWords.forEach(word => {
+                // 检查单词是否已存在
+                const existingIndex = appData.words.findIndex(w => 
+                    w.word.toLowerCase() === word.word.toLowerCase()
+                );
+                
+                if (existingIndex >= 0) {
+                    // 更新现有单词，但保留学习记录
+                    const existingWord = appData.words[existingIndex];
+                    const newWord = {
+                        ...existingWord,
+                        // 更新基本信息
+                        phonetic: word.phonetic || existingWord.phonetic,
+                        translation: word.translation || existingWord.translation,
+                        example: word.example || existingWord.example,
+                        difficulty: word.difficulty !== undefined ? word.difficulty : existingWord.difficulty
+                        // 保留学习统计信息
+                    };
+                    
+                    appData.words[existingIndex] = newWord;
+                    updatedWordsCount++;
+                } else {
+                    // 添加新单词
+                    const newWord = {
+                        word: word.word,
+                        phonetic: word.phonetic || '',
+                        translation: word.translation || '',
+                        example: word.example || '',
+                        difficulty: word.difficulty || 1,
+                        lastReviewed: word.lastReviewed || null,
+                        reviewCount: word.reviewCount || 0,
+                        nextReview: word.nextReview || new Date().toISOString().split('T')[0],
+                        firstLearned: word.firstLearned || null
+                    };
+                    
+                    appData.words.push(newWord);
+                    newWordsCount++;
+                }
+            });
+            
+            saveWords();
+            
+            showToast(`导入成功！新增 ${newWordsCount} 个单词，更新 ${updatedWordsCount} 个单词`);
+            
+            // 更新单词库视图
+            updateLibraryView();
+            
+            return validWords.length;
+        }
+        
+        // 导入单词（支持JSON和CSV格式）
         function importWords(e) {
             try {
                 const file = e.target.files[0];
@@ -2403,71 +2610,59 @@ orange/ˈɒrɪndʒ/橙子"
                 const reader = new FileReader();
                 reader.onload = function(e) {
                     try {
-                        const importedData = JSON.parse(e.target.result);
-                        
-                        // 检查是否是完整的应用数据或仅单词列表
-                        let importedWords = importedData;
+                        const fileExtension = file.name.split('.').pop().toLowerCase();
+                        let importedWords = [];
                         let importedSettings = null;
                         let importedStats = null;
-                        let lastModified = null;
                         
-                        if (importedData.words) {
-                            // 完整的应用数据
-                            importedWords = importedData.words;
-                            importedSettings = importedData.settings;
-                            importedStats = importedData.learningStats;
-                            lastModified = importedData.lastModified;
-                        }
-                        
-                        // 验证导入的数据格式
-                        if (!Array.isArray(importedWords)) {
-                            throw new Error('导入的数据格式不正确');
-                        }
-                        
-                        // 检查每个单词是否有必要的字段
-                        const validWords = importedWords.filter(word => 
-                            word.word && word.translation
-                        );
-                        
-                        // 添加导入的单词
-                        validWords.forEach(word => {
-                            // 检查单词是否已存在
-                            const existingIndex = appData.words.findIndex(w => 
-                                w.word.toLowerCase() === word.word.toLowerCase()
-                            );
+                        if (fileExtension === 'csv') {
+                            // 处理CSV文件
+                            const csvContent = e.target.result;
+                            importedWords = parseCSVToWords(csvContent);
                             
-                            if (existingIndex >= 0) {
-                                // 更新现有单词
-                                appData.words[existingIndex] = {
-                                    ...appData.words[existingIndex],
-                                    ...word
-                                };
+                            // 处理CSV导入的单词
+                            processImportedWords(importedWords);
+                        } else {
+                            // 处理JSON文件
+                            const importedData = JSON.parse(e.target.result);
+                            
+                            // 检查是否是完整的应用数据或仅单词列表
+                            if (importedData.words) {
+                                // 完整的应用数据
+                                importedWords = importedData.words;
+                                importedSettings = importedData.settings;
+                                importedStats = importedData.learningStats;
+                                
+                                // 导入设置和统计数据（如果存在）
+                                if (importedSettings) {
+                                    appData.settings = { ...appData.settings, ...importedSettings };
+                                    saveSettings();
+                                }
+                                
+                                if (importedStats) {
+                                    appData.learningStats = { ...appData.learningStats, ...importedStats };
+                                    saveStats();
+                                }
+                                
+                                // 更新最后修改时间
+                                if (importedData.lastModified) {
+                                    appData.lastModified = importedData.lastModified;
+                                    localStorage.setItem('wordMemoryLastModified', appData.lastModified);
+                                }
                             } else {
-                                // 添加新单词
-                                appData.words.push(word);
+                                // 仅单词列表
+                                importedWords = importedData;
                             }
-                        });
-                        
-                        // 导入设置和统计数据（如果存在）
-                        if (importedSettings) {
-                            appData.settings = { ...appData.settings, ...importedSettings };
-                            saveSettings();
+                            
+                            // 验证导入的数据格式
+                            if (!Array.isArray(importedWords)) {
+                                throw new Error('导入的数据格式不正确');
+                            }
+                            
+                            const validWordsCount = processImportedWords(importedWords);
+                            
+                            showToast(`成功导入 ${validWordsCount} 个单词${importedSettings ? '和设置' : ''}${importedStats ? '和学习统计' : ''}`);
                         }
-                        
-                        if (importedStats) {
-                            appData.learningStats = { ...appData.learningStats, ...importedStats };
-                            saveStats();
-                        }
-                        
-                        // 更新最后修改时间
-                        if (lastModified) {
-                            appData.lastModified = lastModified;
-                            localStorage.setItem('wordMemoryLastModified', appData.lastModified);
-                        }
-                        
-                        saveWords();
-                        
-                        showToast(`成功导入 ${validWords.length} 个单词${importedSettings ? '和设置' : ''}${importedStats ? '和学习统计' : ''}`);
                         
                         // 重置文件输入
                         e.target.value = '';
