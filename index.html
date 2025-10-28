@@ -280,7 +280,7 @@
                     <h2 class="text-xl font-bold">单词库</h2>
                     <div class="flex items-center space-x-2">
                         <button id="toggleTranslationBtn" class="text-gray-600 hover:text-primary transition-colors p-2 rounded-full hover:bg-gray-100">
-                            <i class="fa fa-eye-slash"></i>
+                            <i class="fa fa-eye"></i>
                         </button>
                     </div>
                 </div>
@@ -668,7 +668,7 @@ orange/ˈɒrɪndʒ/橙子"
         let libraryState = {
             filter: 'all',
             searchTerm: '',
-            hideTranslation: false
+            hideTranslation: true
         };
 
         // 图表实例
@@ -1532,6 +1532,23 @@ orange/ˈɒrɪndʒ/橙子"
                     
                     // 从学习队列中移除
                     learningState.wordsToLearn.splice(learningState.currentIndex, 1);
+                    
+                    // 只在标记为简单时增加今日学习计数
+                    appData.learningStats.todayLearned++;
+                    appData.learningStats.lastReviewed = new Date().toISOString();
+                    
+                    // 更新学习历史
+                    const todayStr = today.toISOString().split('T')[0];
+                    if (!appData.learningStats.history[todayStr]) {
+                        appData.learningStats.history[todayStr] = 0;
+                    }
+                    appData.learningStats.history[todayStr]++;
+                    
+                    // 实时更新UI上的学习进度显示
+                    const currentWordIndex = document.getElementById('currentWordIndex');
+                    if (currentWordIndex) currentWordIndex.textContent = appData.learningStats.todayLearned + 1; // 下一个单词的序号
+                    
+                    saveStats();
                 } else if (difficulty === 1 || difficulty === 2) { // 一般或困难
                     // 困难和一般：放入背诵队列最后
                     currentWord.nextReview = today.toISOString(); // 今天再次复习
@@ -1543,23 +1560,14 @@ orange/ˈɒrɪndʒ/橙子"
                     // 将当前单词移到队列末尾
                     const word = learningState.wordsToLearn.splice(learningState.currentIndex, 1)[0];
                     learningState.wordsToLearn.push(word);
+                    
+                    // 对于一般和困难的单词，只更新最后复习时间，不增加今日学习计数
+                    appData.learningStats.lastReviewed = new Date().toISOString();
+                    saveStats();
                 }
                 
                 // 保存单词数据
                 saveWords();
-                
-                // 更新今日学习统计
-                appData.learningStats.todayLearned++;
-                appData.learningStats.lastReviewed = new Date().toISOString();
-                
-                // 更新学习历史
-                const todayStr = today.toISOString().split('T')[0];
-                if (!appData.learningStats.history[todayStr]) {
-                    appData.learningStats.history[todayStr] = 0;
-                }
-                appData.learningStats.history[todayStr]++;
-                
-                saveStats();
                 
                 // 检查是否完成今日目标
                 if (!learningState.continueLearning && 
